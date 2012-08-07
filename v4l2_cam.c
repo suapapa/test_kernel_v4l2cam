@@ -393,14 +393,10 @@ static void jpegWrite(unsigned char *img)
 	FILE *outfile;
 	JSAMPROW row_pointer[1];
 
-	if (bpp == 16) {
-		sprintf(&file_name[0], "linaro%dw%db%dc%dsa%dsp%d.jpg",
-			file_loop,
-			g_pix_width,
-			g_brightness, g_contrast, g_saturation, g_sharpness);
-	} else {
-		sprintf(&file_name[0], "420X%d.jpg", file_loop);
-	}
+	sprintf(&file_name[0], "v4l2_cam-%dx%dx%d-b%d-c%d-sa%d-sp%d-%04d.jpg",
+		g_pix_width, g_pix_height, bpp,
+		g_brightness, g_contrast, g_saturation, g_sharpness,
+		file_loop);
 
 	outfile = fopen(&file_name[0], "wb");
 
