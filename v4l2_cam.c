@@ -71,6 +71,7 @@ static int g_pix_height = 0;
 static char *dev_name = "/dev/video0";
 static int g_file_desc = -1;
 static int file_loop = 0;	/* change file name */
+static int discard_count = 10;	/* discard first n frames */
 static int g_file_count = 0;	/* number of save files */
 unsigned char *g_img_buf = NULL;
 static unsigned char jpegQuality = 70;
@@ -396,7 +397,7 @@ static void jpegWrite(unsigned char *img)
 	sprintf(&file_name[0], "v4l2_cam-%dx%dx%d-b%d-c%d-sa%d-sp%d-%04d.jpg",
 		g_pix_width, g_pix_height, bpp,
 		g_brightness, g_contrast, g_saturation, g_sharpness,
-		file_loop);
+		file_loop + 1);
 
 	outfile = fopen(&file_name[0], "wb");
 
@@ -490,8 +491,9 @@ static void process_image(char *p)
 {
 	int bpp = 16;
 
-	if (!file_loop) {
-		file_loop++;	/* Discard first frame */
+	if (discard_count) {
+		discard_count -= 1;
+		printf("will discard %d more frames\n", discard_count);
 		return;
 	}
 
@@ -558,9 +560,9 @@ static int read_frame(void)
 #define WAIT_DELAY 4
 static void mainloop(void)
 {
-	unsigned int count = g_file_count;
+	unsigned int count = g_file_count + discard_count;
 
-	while (count-- > 0) {
+	while (--count > 0) {
 		for (;;) {
 			fd_set fds;
 			struct timeval tv;
