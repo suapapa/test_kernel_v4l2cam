@@ -1,24 +1,21 @@
 /*
- *  Copyright (C) 2012 Linaro
- *  Sangwook Lee <sangwook.lee@linaro.org>
- *   Only MMAP FIMC V4L2 video capture example
- *   based on V4L2 Specification, Appendix B: Video Capture Example
- *   (http://v4l2spec.bytesex.org/spec/capture-example.html)
- *   Merged v4l2grab
+ * Copyright (C) 2012 Insignal Co,. Ltd Homin Lee <suapapa@insignal.co.kr>
+ * Copyright (C) 2012 Linaro, Sangwook Lee <sangwook.lee@linaro.org>
+ * Copyright (C) 2009 by Tobias Müller <Tobias_Mueller@twam.info>
+ * Copyright (C) 2004 Samsung Electronics <SW.LEE, hitchcar@sec.samsung.com>
  *
- *  Copyright (C) 2009 by Tobias Müller
- *   Tobias_Mueller@twam.info
+ * Only MMAP FIMC V4L2 video capture example
+ * based on V4L2 Specification, Appendix B: Video Capture Example
+ * (http://v4l2spec.bytesex.org/spec/capture-example.html)
+ * Merged v4l2grab
  *
- *  Copyright (C) 2004 Samsung Electronics
- *                   <SW.LEE, hitchcar@sec.samsung.com>
- *		based yuv_4p.c
+ * to test V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE, define TEST_MPLANE_CAPTURE
+ * from below.
  *
- *
- *  The main purpose of this app is to show to use V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
- *
- *  This program can be used and distributed without restrictions.
- *  GPLv2
+ * This program can be used and distributed without restrictions.
+ * GPLv2
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,10 +32,22 @@
 #include <sys/ioctl.h>
 
 #include <asm/types.h>		/* for videodev2.h */
-
 #include <linux/videodev2.h>
 
 #include "jpeglib.h"
+
+#define u32 unsigned int
+
+/* Enable these test as your wish by define it */
+#undef TEST_CONTROLS
+#undef TEST_CROPCAP
+#undef TEST_MPLANE_CAPTURE
+
+#ifdef TEST_MPLANE_CAPTURE
+#define CAPTURE_BUFFER_TYPE V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE
+#else
+#define CAPTURE_BUFFER_TYPE V4L2_BUF_TYPE_VIDEO_CAPTURE
+#endif
 
 #define CLEAR(x) memset (&(x), 0, sizeof (x))
 
@@ -59,14 +68,13 @@ fimc_buf_t *buffers = NULL;
 static unsigned int n_buffers = 4;
 static int g_pix_width = 0;
 static int g_pix_height = 0;
-static char *dev_name = "/dev/video1";
+static char *dev_name = "/dev/video0";
 static int g_file_desc = -1;
 static int file_loop = 0;	/* change file name */
 static int g_file_count = 0;	/* number of save files */
 unsigned char *g_img_buf = NULL;
 static unsigned char jpegQuality = 70;
 
-#define S5K_CTRL_NUM 4
 int g_brightness = 0xDEAD;
 int g_contrast = 0;
 int g_saturation = 0;
@@ -85,6 +93,7 @@ static void errno_exit(const char *s)
 	exit(EXIT_FAILURE);
 }
 
+#ifdef TEST_CONTROLS
 static void fill_ctrls(void)
 {
 	s5k_ctrl->value = g_brightness;
@@ -132,6 +141,7 @@ static void start_control_testing(void)
 	}
 
 }
+#endif				// TEST_CONTROLS
 
 static int xioctl(int fd, int request, void *arg)
 {
@@ -149,10 +159,11 @@ static int init_mmap(unsigned int *n_buffers)
 	struct v4l2_requestbuffers req;
 	unsigned int buf_index;
 	struct v4l2_plane planes[VIDEO_MAX_PLANES];
+	u32 offset, length;
 
 	memset(&req, 0, sizeof(req));
 	req.count = *n_buffers;
-	req.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	req.type = CAPTURE_BUFFER_TYPE;
 	req.memory = V4L2_MEMORY_MMAP;
 
 	PR_IO(VIDIOC_REQBUFS);
@@ -185,9 +196,11 @@ static int init_mmap(unsigned int *n_buffers)
 	for (buf_index = 0; buf_index < req.count; ++buf_index) {
 		struct v4l2_buffer buf;
 		memset(&buf, 0, sizeof(buf));
-		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-		buf.m.planes = planes;
-		buf.length = 1;	/* just one plane, depends on pixel format */
+		buf.type = CAPTURE_BUFFER_TYPE;
+		if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+			buf.m.planes = planes;
+			buf.length = 1;	/* just one plane, depends on pixel format */
+		}
 		buf.memory = V4L2_MEMORY_MMAP;
 		buf.index = buf_index;
 
@@ -198,17 +211,22 @@ static int init_mmap(unsigned int *n_buffers)
 		printf
 		    ("====== buf_index %d ==================================\n",
 		     buf_index);
-		printf("Plane offset: %d\n", buf.m.planes[0].m.mem_offset);
-		printf("Plane length: %d\n", buf.m.planes[0].length);
+		if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+			offset = buf.m.planes[0].m.mem_offset;
+			length = buf.m.planes[0].length;
+		} else {
+			offset = buf.m.offset;
+			length = buf.length;
+		}
+		printf("Plane offset: %d\n", offset);
+		printf("Plane length: %d\n", length);
 
-		buffers[buf_index].size[0] = buf.m.planes[0].length;
+		buffers[buf_index].size[0] = length;
 		buffers[buf_index].addr[0] = mmap(NULL /* start anywhere */ ,
-						  buf.m.planes[0].length,
-						  PROT_READ | PROT_WRITE
+						  length, PROT_READ | PROT_WRITE
 						  /* required */ ,
 						  MAP_SHARED /* recommended */ ,
-						  g_file_desc,
-						  buf.m.planes[0].m.mem_offset);
+						  g_file_desc, offset);
 
 		if (MAP_FAILED == buffers[buf_index].addr[0]) {
 			perror("mmap");
@@ -243,7 +261,7 @@ static void init_v4l2_device(void)
 		}
 	}
 
-	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)) {
+	if (!(cap.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
 		fprintf(stderr, "%s is no video capture device\n", dev_name);
 		exit(EXIT_FAILURE);
 	}
@@ -253,9 +271,8 @@ static void init_v4l2_device(void)
 			dev_name);
 		exit(EXIT_FAILURE);
 	}
-
+#ifdef TEST_CROPCAP
 	CLEAR(cropcap);
-
 	cropcap.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 
 	PR_IO(VIDIOC_CROPCAP);
@@ -276,6 +293,7 @@ static void init_v4l2_device(void)
 	} else {
 		/* Errors ignored. */
 	}
+#endif
 
 	CLEAR(fmt);
 	fmt.fmt.pix_mp.num_planes = 1;
@@ -327,6 +345,24 @@ static void open_device(void)
 	}
 }
 
+static void set_input_chann(int idx)
+{
+	struct v4l2_input input;
+
+	input.index = idx;
+	if (0 != ioctl(g_file_desc, VIDIOC_ENUMINPUT, &input)) {
+		fprintf(stderr, "No matching index found for %d, %s\n",
+			idx, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+
+	if (0 > ioctl(g_file_desc, VIDIOC_S_INPUT, &input)) {
+		fprintf(stderr, "Failed to set input to %d, %s\n",
+			idx, strerror(errno));
+		exit(EXIT_FAILURE);
+	}
+}
+
 static void save_yuv(int bpp, char *g_yuv)
 {
 	FILE *yuv_fp = NULL;
@@ -365,6 +401,7 @@ static void jpegWrite(unsigned char *img)
 	} else {
 		sprintf(&file_name[0], "420X%d.jpg", file_loop);
 	}
+
 	outfile = fopen(&file_name[0], "wb");
 
 	// try to open file for saving
@@ -406,6 +443,7 @@ static void jpegWrite(unsigned char *img)
 
 	// close output file
 	fclose(outfile);
+	printf("%s created\n", file_name);
 }
 
 /**
@@ -480,7 +518,7 @@ static int read_frame(void)
 	int index;
 
 	CLEAR(buf);
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	buf.type = CAPTURE_BUFFER_TYPE;
 	buf.memory = V4L2_MEMORY_MMAP;
 
 	PR_IO(VIDIOC_DQBUF);
@@ -506,12 +544,14 @@ static int read_frame(void)
 
 	PR_IO(VIDIOC_QBUF);
 	CLEAR(buf);
-	buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	buf.type = CAPTURE_BUFFER_TYPE;
 	buf.memory = V4L2_MEMORY_MMAP;
 	buf.index = index;
-	buf.m.planes = planes;
-	buf.length = 1;
-	buf.m.planes[0].bytesused = buffers[index].size[0];
+	if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+		buf.m.planes = planes;
+		buf.length = 1;
+		buf.m.planes[0].bytesused = buffers[index].size[0];
+	}
 
 	if (-1 == xioctl(g_file_desc, VIDIOC_QBUF, &buf))
 		errno_exit("VIDIOC_QBUF");
@@ -551,9 +591,9 @@ static void mainloop(void)
 				fprintf(stderr, "=====================\n\n");
 				exit(EXIT_FAILURE);
 			}
-
 			if (read_frame())
 				break;
+
 			/* EAGAIN - continue select loop. */
 		}
 	}
@@ -569,19 +609,21 @@ void start_capturing(fimc_buf_t * bufs)
 	for (i = 0; i < n_buffers; ++i) {
 		struct v4l2_buffer buf;
 		CLEAR(buf);
-		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+		buf.type = CAPTURE_BUFFER_TYPE;
 		buf.memory = V4L2_MEMORY_MMAP;
 		buf.index = i;
-		buf.m.planes = planes;
-		buf.length = 1;
-		buf.m.planes[0].bytesused = bufs[i].size[0];
+		if (buf.type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
+			buf.m.planes = planes;
+			buf.length = 1;
+			buf.m.planes[0].bytesused = bufs[i].size[0];
+		}
 
 		if (-1 == xioctl(g_file_desc, VIDIOC_QBUF, &buf))
 			errno_exit("VIDIOC_QBUF");
 	}
 
 	PR_IO(VIDIOC_STREAMON);
-	type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	type = CAPTURE_BUFFER_TYPE;
 	if (-1 == xioctl(g_file_desc, VIDIOC_STREAMON, &type))
 		errno_exit("VIDIOC_STREAMON");
 }
@@ -589,7 +631,7 @@ void start_capturing(fimc_buf_t * bufs)
 static void stop_capturing(void)
 {
 	enum v4l2_buf_type type;
-	type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	type = CAPTURE_BUFFER_TYPE;
 
 	if (-1 == xioctl(g_file_desc, VIDIOC_STREAMOFF, &type))
 		errno_exit("VIDIOC_STREAMOFF");
@@ -629,33 +671,48 @@ int main(int argc, char **argv)
 {
 	int ret = 0;
 
+#ifdef TEST_CONTROLS
 	if (argc != 8) {
 		printf
-		    ("%s width height num_of_frames bright contrast saturation sharpness \n",
+		    ("%s width height num_of_frames bright contrast saturation sharpness\n",
 		     argv[0]);
 		printf("EX)  $ %s 640 480  3  0 0 0 24612 \n", argv[0]);
 		goto err;
 	}
+#else
+	if (argc != 4) {
+		printf
+		    ("%s width height num_of_frames bright contrast saturation sharpness\n",
+		     argv[0]);
+		printf("EX)  $ %s 640 480  3\n", argv[0]);
+		goto err;
+	}
+#endif
 
 	g_pix_width = atoi(argv[1]);
 	g_pix_height = atoi(argv[2]);
 	g_file_count = atoi(argv[3]) + 1;
 
+#ifdef TEST_CONTROLS
 	g_brightness = atoi(argv[4]);
 	g_contrast = atoi(argv[5]);
 	g_saturation = atoi(argv[6]);
 	g_sharpness = atoi(argv[7]);
+#endif
 
 	g_img_buf = malloc(g_pix_width * g_pix_height * 3 * sizeof(char));
 
 	open_device();
+	set_input_chann(0);
 	init_v4l2_device();
-
 	ret = init_mmap(&n_buffers);
+
 	if (ret)
 		errno_exit("init_mmap error !!!");
 
+#ifdef TEST_CONTROLS
 	start_control_testing();
+#endif
 	start_capturing(buffers);
 	mainloop();
 	stop_capturing();

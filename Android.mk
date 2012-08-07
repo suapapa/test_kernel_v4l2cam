@@ -3,7 +3,6 @@ include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES += linaroca.c
 
-LOCAL_C_INCLUDES += hardware/samsung/exynos4/hal/include
 LOCAL_SHARED_LIBRARIES += libutils libui liblog libbinder libdl libcutils
 
 LOCAL_SHARED_LIBRARIES += libjpeg
